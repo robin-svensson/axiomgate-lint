@@ -13,6 +13,10 @@
 
 A CrewAI agent with `allow_delegation=True` can hand work to other agents, which can hand it on again. There's no depth limit and no approval step. It's one keyword, easy to add while debugging and easy to forget, and it disappears in a diff full of prompt changes.
 
+Here's the shape it usually takes. A researcher agent delegates drafting to a writer. The writer hits a gap and delegates the missing fact back to the researcher, which delegates part of it onward again. Nothing is broken and nothing raises an error. Every hop is a fresh model call against a real budget, and the first thing anyone notices is the invoice. The second is that no human approved any step after the first one.
+
+That's the cheap version. The expensive version is the same loop with a tool attached that writes to something.
+
 CrewAI defaults to `allow_delegation=False` ([source](https://github.com/crewAIInc/crewAI/blob/main/lib/crewai/src/crewai/agents/agent_builder/base_agent.py)). That's a sensible default, and it's why the explicit `True` is worth finding. Nobody got it by accident. Somebody typed it, and this linter asks whether anyone reviewed that.
 
 ---
@@ -66,6 +70,17 @@ pip install .
 
 Python 3.10 or newer, nothing else.
 
+### Check it works
+
+A linter that silently does nothing looks exactly like a linter that found nothing. The repository ships two small files so you can tell them apart:
+
+```bash
+axiomgate-lint examples/vulnerable_crew.py   # one HIGH finding, exit 2
+axiomgate-lint examples/safe_crew.py         # nothing,          exit 0
+```
+
+If the first one is quiet, something is wrong with the install, not with your code.
+
 ---
 
 ## Use it
@@ -111,10 +126,13 @@ axiomgate-lint [target] [--fail-on critical|high|medium|low|any] [--format text|
 
 | Code | Meaning |
 |---|---|
-| `0` | Nothing at or above the threshold |
-| `2` | Something at or above the threshold, so CI should fail |
+| `0` | Scanned, nothing at or above the threshold |
+| `1` | Could not scan. The target doesn't exist |
+| `2` | Scanned, found something at or above the threshold |
 
-Files that can't be parsed or read are reported as warnings and never change the exit code. If the linter couldn't read something, it says so instead of skipping it quietly.
+Code `1` earns its place. `axiomgate-lint ./scr` is a typo, and a tool that answers "0 findings, exit 0" to a path it never opened hands you a green pipeline for a scan that never ran. Scanning nothing and finding nothing are different results and only one of them should pass.
+
+Individual files that can't be parsed or read are reported as warnings and don't change the exit code. If the linter couldn't read something, it says so instead of skipping it quietly.
 
 ---
 

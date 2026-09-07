@@ -133,3 +133,48 @@ def test_github_warnings_are_reported_and_do_not_become_errors():
     with contextlib.redirect_stdout(buf):
         _print_github([], ["could not read foo.py"], SEVERITY_LEVELS["any"])
     assert buf.getvalue().startswith("::warning title=AxiomGate Lint::")
+
+
+# --- A target that is not there is not a clean scan ---------------------------
+# `axiomgate-lint ./scr` (a typo for ./src) printed "Total findings: 0" and
+# exited 0. In CI that is a green check for work that never happened: the
+# warning goes to stderr, the annotation is a ::warning nobody reads, and the
+# pipeline reports success. Scanning nothing is not the same as finding
+# nothing, and only one of the two should pass.
+
+import subprocess
+
+
+def _run(*args):
+    return subprocess.run(
+        [sys.executable, "-m", "axiomgate_lint", *args],
+        capture_output=True, text=True,
+    )
+
+
+import sys  # noqa: E402  (kept beside the helper that needs it)
+
+
+def test_missing_target_does_not_exit_zero():
+    r = _run("/nonexistent/path/xyz")
+    assert r.returncode == 1, (
+        "a target that does not exist must not report success; that is a "
+        "green CI check for a scan that never ran"
+    )
+
+
+def test_missing_target_says_why():
+    r = _run("/nonexistent/path/xyz")
+    assert "does not exist" in (r.stdout + r.stderr)
+
+
+def test_missing_target_is_distinct_from_findings():
+    """Exit 1 is 'could not scan'. Exit 2 is 'scanned, found something'.
+    Collapsing them would make a typo look like a security failure."""
+    r = _run("/nonexistent/path/xyz")
+    assert r.returncode != 2
+
+
+def test_an_empty_directory_is_a_clean_pass(tmp_path):
+    r = _run(str(tmp_path))
+    assert r.returncode == 0

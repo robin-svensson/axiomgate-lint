@@ -151,14 +151,19 @@ def main():
     args = parser.parse_args()
 
     target = os.path.abspath(args.target)
+    unscannable = False
 
     if os.path.isfile(target):
         findings, warnings = scan_file(target)
     elif os.path.isdir(target):
         findings, warnings = scan_directory(target)
     else:
+        # Scanning nothing is not the same as finding nothing. A mistyped
+        # path used to print "Total findings: 0" and exit 0, which in CI is a
+        # green check for work that never ran.
         findings = []
         warnings = [f"Target path does not exist: {target}"]
+        unscannable = True
 
     threshold = SEVERITY_LEVELS.get(args.fail_on, 3)
 
@@ -171,6 +176,13 @@ def main():
         print(json.dumps(out, indent=2))
     else:
         _print_text(target, findings, warnings)
+
+    # Exit 1 means the scan could not run. Exit 2 means it ran and found
+    # something. Collapsing the two would make a typo in a path look like a
+    # security failure, and — worse in the other direction — let a path that
+    # was never read pass as clean.
+    if unscannable:
+        sys.exit(1)
 
     has_violation = any(SEVERITY_LEVELS.get(f["severity"], 1) >= threshold for f in findings)
     if has_violation:
