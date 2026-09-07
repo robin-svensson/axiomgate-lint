@@ -1,6 +1,6 @@
 # AxiomGate Linter (`axiomgate-lint`)
 
-> Somebody on your team wrote `allow_delegation=True`. CrewAI ships that switch **off** — so turning it on was a decision. This linter finds those decisions and puts them in front of a reviewer before they reach production.
+> Someone on your team wrote `allow_delegation=True`. CrewAI ships that switch off, so turning it on was a decision. This linter finds those decisions and puts them in front of a reviewer.
 
 [![CI](https://github.com/robinsvensson493-cyber/axiomgate-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/robinsvensson493-cyber/axiomgate-lint/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -9,54 +9,54 @@
 
 ---
 
-## Why this exists
+## Why
 
-A CrewAI agent with `allow_delegation=True` can hand work to other agents, which can hand it on again. There is no built-in depth limit and no human approval step. One switch turns a bounded worker into a recursive task factory, and it is one keyword long — easy to add while debugging, easy to forget, and invisible in a diff full of prompt changes.
+A CrewAI agent with `allow_delegation=True` can hand work to other agents, which can hand it on again. There's no depth limit and no approval step. It's one keyword, easy to add while debugging and easy to forget, and it disappears in a diff full of prompt changes.
 
-CrewAI's own default is `allow_delegation=False` ([source](https://github.com/crewAIInc/crewAI/blob/main/lib/crewai/src/crewai/agents/agent_builder/base_agent.py)). That is the right default, and it is exactly why an explicit `True` is worth catching: it is not an accident of the framework, it is somebody's choice. This linter asks whether that choice was reviewed.
+CrewAI defaults to `allow_delegation=False` ([source](https://github.com/crewAIInc/crewAI/blob/main/lib/crewai/src/crewai/agents/agent_builder/base_agent.py)). That's a sensible default, and it's why the explicit `True` is worth finding. Nobody got it by accident. Somebody typed it, and this linter asks whether anyone reviewed that.
 
 ---
 
 ## What it does
 
-`axiomgate-lint` is a **zero-dependency, zero-network** static analysis tool. No model calls, no API keys, nothing leaves your machine. It parses Python with the standard library's `ast` module and reports what it finds, mapped to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/).
+`axiomgate-lint` reads Python with the standard library's `ast` module and reports what it finds, mapped to the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/).
 
-Because it never executes your code, it is safe to run against a repository you have not read yet.
+No dependencies. No network calls. No API keys. Nothing leaves your machine, and it never executes the code it reads, so it's safe to point at a repository you haven't looked at yet.
 
 ---
 
 ## What it catches
 
-| Rule | Severity | OWASP LLM | What it means |
+| Rule | Severity | OWASP LLM | Meaning |
 |---|---|---|---|
-| `AG-DEL-001` | HIGH | LLM06: Excessive Agency | An agent is constructed with an explicit `allow_delegation=True` — it can delegate to other agents with no depth limit and no human approval |
+| `AG-DEL-001` | HIGH | LLM06: Excessive Agency | An agent is built with an explicit `allow_delegation=True`, so it can delegate to other agents with no depth limit and no human approval |
 
-One rule. It is a real one, and the tool does not claim more than it checks.
+One rule so far. It's a real one, and the tool doesn't claim more than it checks.
 
 ---
 
-## What it does *not* catch
+## What it misses
 
-A security tool that hides its blind spots is worse than no tool, because it gets trusted. These are the current ones:
+A security tool that hides its blind spots is worse than no tool, because people trust it. Here are the current ones.
 
-- **Only `.py` files.** CrewAI's modern pattern puts agent configuration in `agents.yaml`. Delegation enabled there is invisible to this linter today.
-- **Only literal values.** `allow_delegation=True` is caught; `allow_delegation=cfg.delegate`, or a value read from the environment, is not.
-- **Only CrewAI's parameter.** `allow_delegation` is a CrewAI concept. AutoGen and OpenAI Swarm have no equivalent keyword, so scanning their code with this rule will correctly find nothing — that is the absence of this specific check, not a clean bill of health.
-- **No runtime behaviour.** It does not execute agents, observe them, or verify permission boundaries. It reads source.
+- **Python files only.** CrewAI's newer pattern puts agent config in `agents.yaml`. Delegation turned on there is invisible to this linter.
+- **Literal values only.** It catches `allow_delegation=True`. It won't catch `allow_delegation=cfg.delegate` or a value read from the environment.
+- **CrewAI's parameter only.** `allow_delegation` is a CrewAI concept. AutoGen and OpenAI Swarm have no equivalent, so running this against their code finds nothing. That's a check that didn't apply, not a clean bill of health.
+- **Source, not behaviour.** It doesn't run your agents, watch them, or prove anything about permission boundaries.
 
-A run reporting zero findings means *this rule did not match*. It does not mean the system is safe.
+Zero findings means this rule didn't match. It doesn't mean your system is safe.
 
 ---
 
 ## Install
 
-Not yet published to PyPI. Install from the repository:
+Not on PyPI yet. Install from the repository:
 
 ```bash
 pip install git+https://github.com/robinsvensson493-cyber/axiomgate-lint.git
 ```
 
-Or from a local clone:
+Or clone it:
 
 ```bash
 git clone https://github.com/robinsvensson493-cyber/axiomgate-lint.git
@@ -64,7 +64,7 @@ cd axiomgate-lint
 pip install .
 ```
 
-Python 3.10 or newer. No other requirements.
+Python 3.10 or newer, nothing else.
 
 ---
 
@@ -74,7 +74,7 @@ Python 3.10 or newer. No other requirements.
 axiomgate-lint .
 ```
 
-**Nothing matched:**
+Nothing matched:
 
 ```
 === AxiomGate AI Agent Linter ===
@@ -82,7 +82,7 @@ Target: /path/to/your/project
 Total findings: 0
 ```
 
-**Something matched:**
+Something matched:
 
 ```
 === AxiomGate AI Agent Linter ===
@@ -101,7 +101,7 @@ Total findings: 1
 axiomgate-lint [target] [--fail-on critical|high|medium|low|any] [--format text|json|github] [--version]
 ```
 
-| Flag | Default | What it does |
+| Flag | Default | Does |
 |---|---|---|
 | `target` | `.` | Directory or file to scan |
 | `--fail-on` | `high` | Severity at or above which the run exits 2 |
@@ -112,9 +112,9 @@ axiomgate-lint [target] [--fail-on critical|high|medium|low|any] [--format text|
 | Code | Meaning |
 |---|---|
 | `0` | Nothing at or above the threshold |
-| `2` | Something at or above the threshold — CI should fail |
+| `2` | Something at or above the threshold, so CI should fail |
 
-Parse errors and unreadable files are reported as warnings and never change the exit code. A file the linter could not read is stated, not silently skipped.
+Files that can't be parsed or read are reported as warnings and never change the exit code. If the linter couldn't read something, it says so instead of skipping it quietly.
 
 ---
 
@@ -139,7 +139,7 @@ jobs:
       - run: axiomgate-lint . --fail-on high --format github
 ```
 
-Or as the bundled action:
+Or use the bundled action:
 
 ```yaml
       - uses: robinsvensson493-cyber/axiomgate-lint@main
@@ -148,15 +148,15 @@ Or as the bundled action:
           fail-on: high
 ```
 
-With `--format github`, findings appear as annotations on the changed lines. Findings that fail the build are emitted as `::error` and the rest as `::warning`, so what a reviewer sees matches what the pipeline decided.
+With `--format github` the findings show up as annotations on the changed lines. Anything that fails the build is emitted as `::error` and the rest as `::warning`, so what the reviewer sees matches what the pipeline decided.
 
 ---
 
 ## Contributing
 
-Issues and pull requests are welcome — particularly new rules, and particularly evidence that an existing rule is wrong.
+Issues and pull requests are welcome, especially new rules and especially evidence that an existing rule is wrong.
 
-A new rule needs three things: a test that fails before the rule exists, a real-world pattern it matches, and a clear statement of what it cannot see. Rules that guess are worse than no rule.
+A new rule needs three things: a test that fails before the rule exists, a real pattern it matches, and a plain statement of what it can't see. A rule that guesses is worse than no rule.
 
 ```bash
 git clone https://github.com/robinsvensson493-cyber/axiomgate-lint.git
@@ -169,10 +169,10 @@ pytest
 
 ## Where this comes from
 
-`axiomgate-lint` is the open part of **AxiomGate**, a deterministic security and architecture auditor for multi-agent systems. The linter does one check well and for free; the auditor maps agent topologies, delegation graphs and capability boundaries, and produces evidence-backed reports for teams that need one before going to production or in front of investors.
+`axiomgate-lint` is the open part of **AxiomGate**, a deterministic security and architecture auditor for multi-agent systems. The linter does one check, well and for free. The auditor maps agent topologies, delegation paths and capability boundaries, and produces evidence-backed reports for teams that need one before going to production or in front of investors.
 
 Built by [Robin Svensson](https://github.com/robinsvensson493-cyber).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
