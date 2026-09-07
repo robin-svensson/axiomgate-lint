@@ -1,0 +1,27 @@
+name: 'AxiomGate AI Agent Linter'
+description: 'Deterministic AST security & privilege linter for multi-agent systems'
+author: 'Robin Svensson'
+inputs:
+  target-path:
+    description: 'Path to scan for agent architectures'
+    required: false
+    default: '.'
+  fail-on:
+    description: 'Severity threshold to trigger exit failure (critical, high, medium, low, any)'
+    required: false
+    default: 'high'
+  format:
+    description: 'Output format (text, json, github)'
+    required: false
+    default: 'github'
+runs:
+  using: 'composite'
+  steps:
+    - name: Run AxiomGate Linter
+      shell: bash
+      run: |
+        python3 -m pip install .
+        axiomgate-lint "${{ inputs.target-path }}" --fail-on "${{ inputs.fail-on }}" --format "${{ inputs.format }}"
+branding:
+  icon: 'shield'
+  color: 'blue'
