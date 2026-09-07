@@ -17,11 +17,24 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install AxiomGate Linter
+      shell: bash
+      # github.action_path, not "." — inside a composite action the working
+      # directory is the *consumer's* checkout, so `pip install .` installed
+      # whatever project was being scanned rather than the linter, and the
+      # action failed for everyone who used it.
+      run: python3 -m pip install --disable-pip-version-check "${{ github.action_path }}"
+
     - name: Run AxiomGate Linter
       shell: bash
       run: |
-        python3 -m pip install .
-        axiomgate-lint "${{ inputs.target-path }}" --fail-on "${{ inputs.fail-on }}" --format "${{ inputs.format }}"
+        axiomgate-lint "${{ inputs.target-path }}" \
+          --fail-on "${{ inputs.fail-on }}" \
+          --format "${{ inputs.format }}"
 branding:
   icon: 'shield'
   color: 'blue'

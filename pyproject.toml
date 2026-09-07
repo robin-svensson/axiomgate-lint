@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "axiomgate-lint"
-version = "0.1.0"
+dynamic = ["version"]
 authors = [
   { name="Robin Svensson", email="228113985+robinsvensson493-cyber@users.noreply.github.com" },
 ]
-description = "Deterministic AST security and privilege linter for multi-agent AI systems (LangGraph, CrewAI, AutoGen, Swarm)"
+description = "Deterministic AST security and privilege linter for multi-agent AI systems (CrewAI, AutoGen, Swarm)"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -23,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
     "Topic :: Software Development :: Quality Assurance",
 ]
@@ -39,6 +40,14 @@ axiomgate-lint = "axiomgate_lint.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.dynamic]
+version = {attr = "axiomgate_lint.__version__"}
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/robinsvensson493-cyber/axiomgate-lint"
+Repository = "https://github.com/robinsvensson493-cyber/axiomgate-lint"
+Issues = "https://github.com/robinsvensson493-cyber/axiomgate-lint/issues"
