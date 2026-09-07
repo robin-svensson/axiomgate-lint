@@ -78,8 +78,22 @@ def scan_directory(target_dir: str) -> Tuple[List[Dict[str, Any]], List[str]]:
         all_warnings.append(f"Target path does not exist or is not a directory: {target_dir}")
         return all_findings, all_warnings
 
-    for root, _, files in os.walk(target_dir):
-        if any(part in IGNORED_DIRS for part in os.path.normpath(root).split(os.sep)):
+    for root, dirs, files in os.walk(target_dir):
+        # Prune rather than skip. os.walk still descends into a directory that
+        # the loop body ignores, so a large site-packages tree was being read
+        # in full before every file in it was discarded.
+        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and d != "site-packages"]
+
+        # A virtual environment is not the user's code. Naming them by hand
+        # only catches the conventional names: a project whose environment was
+        # called `.v` had its entire site-packages scanned, producing findings
+        # in third-party packages nobody there had written. Every virtual
+        # environment contains pyvenv.cfg, whatever the directory is called.
+        dirs[:] = [d for d in dirs
+                   if not os.path.isfile(os.path.join(root, d, "pyvenv.cfg"))]
+
+        if any(part in IGNORED_DIRS or part == "site-packages"
+               for part in os.path.normpath(root).split(os.sep)):
             continue
         for file in files:
             if file.endswith(".py"):

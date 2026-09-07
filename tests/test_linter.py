@@ -178,3 +178,43 @@ def test_missing_target_is_distinct_from_findings():
 def test_an_empty_directory_is_a_clean_pass(tmp_path):
     r = _run(str(tmp_path))
     assert r.returncode == 0
+
+
+# --- Virtual environments are not your code ----------------------------------
+# Found by running the GitHub Action against a project whose venv was called
+# `.v`. IGNORED_DIRS listed "venv" and ".venv" by name, so anything named
+# differently got its entire site-packages scanned: findings in third-party
+# packages the user never wrote, a failing build for code they do not control,
+# and a scan that walks tens of thousands of files. A venv is identifiable by
+# the pyvenv.cfg that every one of them contains, whatever the directory is
+# called.
+
+def test_site_packages_is_never_scanned(tmp_path):
+    pkg = tmp_path / "weirdname" / "lib" / "python3.12" / "site-packages" / "dep"
+    pkg.mkdir(parents=True)
+    (pkg / "agent.py").write_text(
+        "from crewai import Agent\na = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_directory(str(tmp_path))
+    assert findings == [], "a dependency inside site-packages is not the user's code"
+
+
+def test_a_virtualenv_is_skipped_whatever_it_is_called(tmp_path):
+    env = tmp_path / ".v"
+    env.mkdir()
+    (env / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (env / "mod.py").write_text(
+        "from crewai import Agent\na = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_directory(str(tmp_path))
+    assert findings == [], "pyvenv.cfg marks a virtual environment regardless of name"
+
+
+def test_the_users_own_code_is_still_scanned(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "crew.py").write_text(
+        "from crewai import Agent\na = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_directory(str(tmp_path))
+    assert len(findings) == 1, "skipping environments must not skip the project"
