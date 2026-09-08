@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Use GitHub's private reporting: **Security → Report a vulnerability** on
-[this repository](https://github.com/robinsvensson493-cyber/axiomgate-lint/security/advisories/new).
+[this repository](https://github.com/robin-svensson/axiomgate-lint/security/advisories/new).
 That keeps the report private until there's a fix.
 
 Please don't open a public issue for a vulnerability.

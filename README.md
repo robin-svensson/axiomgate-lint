@@ -2,7 +2,7 @@
 
 > Someone on your team wrote `allow_delegation=True`. CrewAI ships that switch off, so turning it on was a decision. This linter finds those decisions and puts them in front of a reviewer.
 
-[![CI](https://github.com/robinsvensson493-cyber/axiomgate-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/robinsvensson493-cyber/axiomgate-lint/actions/workflows/ci.yml)
+[![CI](https://github.com/robin-svensson/axiomgate-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/robin-svensson/axiomgate-lint/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![OWASP Top 10 for LLMs](https://img.shields.io/badge/Security-OWASP%20LLM%20Top%2010-emerald.svg)](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
@@ -57,13 +57,13 @@ Zero findings means this rule didn't match. It doesn't mean your system is safe.
 Not on PyPI yet. Install from the repository:
 
 ```bash
-pip install git+https://github.com/robinsvensson493-cyber/axiomgate-lint.git
+pip install git+https://github.com/robin-svensson/axiomgate-lint.git
 ```
 
 Or clone it:
 
 ```bash
-git clone https://github.com/robinsvensson493-cyber/axiomgate-lint.git
+git clone https://github.com/robin-svensson/axiomgate-lint.git
 cd axiomgate-lint
 pip install .
 ```
@@ -153,14 +153,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install git+https://github.com/robinsvensson493-cyber/axiomgate-lint.git
+      - run: pip install git+https://github.com/robin-svensson/axiomgate-lint.git
       - run: axiomgate-lint . --fail-on high --format github
 ```
 
 Or use the bundled action:
 
 ```yaml
-      - uses: robinsvensson493-cyber/axiomgate-lint@main
+      - uses: robin-svensson/axiomgate-lint@main
         with:
           target-path: ./src
           fail-on: high
@@ -177,7 +177,7 @@ Issues and pull requests are welcome, especially new rules and especially eviden
 A new rule needs three things: a test that fails before the rule exists, a real pattern it matches, and a plain statement of what it can't see. A rule that guesses is worse than no rule.
 
 ```bash
-git clone https://github.com/robinsvensson493-cyber/axiomgate-lint.git
+git clone https://github.com/robin-svensson/axiomgate-lint.git
 cd axiomgate-lint
 pip install -e ".[dev]"
 pytest
@@ -189,7 +189,7 @@ pytest
 
 `axiomgate-lint` is the open part of **AxiomGate**, a deterministic security and architecture auditor for multi-agent systems. The linter does one check, well and for free. The auditor maps agent topologies, delegation paths and capability boundaries, and produces evidence-backed reports for teams that need one before going to production or in front of investors.
 
-Built by [Robin Svensson](https://github.com/robinsvensson493-cyber).
+Built by [Robin Svensson](https://github.com/robin-svensson).
 
 ## License
 

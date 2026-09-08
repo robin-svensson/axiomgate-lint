@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "axiomgate-lint"
 dynamic = ["version"]
 authors = [
-  { name="Robin Svensson", email="228113985+robinsvensson493-cyber@users.noreply.github.com" },
+  { name="Robin Svensson", email="228113985+robin-svensson@users.noreply.github.com" },
 ]
 description = "Deterministic AST security and privilege linter for multi-agent AI systems (CrewAI, AutoGen, Swarm)"
 readme = "README.md"
@@ -48,6 +48,6 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [project.urls]
-Homepage = "https://github.com/robinsvensson493-cyber/axiomgate-lint"
-Repository = "https://github.com/robinsvensson493-cyber/axiomgate-lint"
-Issues = "https://github.com/robinsvensson493-cyber/axiomgate-lint/issues"
+Homepage = "https://github.com/robin-svensson/axiomgate-lint"
+Repository = "https://github.com/robin-svensson/axiomgate-lint"
+Issues = "https://github.com/robin-svensson/axiomgate-lint/issues"
