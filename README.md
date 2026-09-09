@@ -46,11 +46,14 @@ The rule fires only when the file imports the framework. A class of your own tha
 A security tool that hides its blind spots is worse than no tool, because people trust it. Here are the current ones.
 
 - **Python files only.** CrewAI's newer pattern puts agent config in `agents.yaml`. Delegation turned on there is invisible to this linter.
-- **Literal values only.** It catches `allow_delegation=True` and `allow_delegation=1`, set either in the constructor or as `agent.allow_delegation = True` on a variable it can see was built from a framework agent. It won't catch `allow_delegation=cfg.delegate`, a value read from the environment, or a flag flipped through a reference it can't follow.
-- **Agents it can't follow to a name.** It tracks delegation switched on through a variable it saw built from a framework agent, including tuple unpacking. Agents constructed inside a loop or a comprehension and mutated through the loop variable are not tracked.
+- **Literal values only.** It catches `allow_delegation=True` and `allow_delegation=1`. It won't catch `allow_delegation=cfg.delegate`, a value read from the environment, or anything else whose value is only known once the code runs.
+- **Configuration held in a variable.** `Agent(**{"allow_delegation": True})` is read, because the dict is right there. `Agent(**config)` is not: what `config` holds is not knowable without running the code, and assuming every `**kwargs` factory delegates would flag every factory in the project.
+- **Names it can follow.** It tracks delegation switched on afterwards through a variable, a second name for the same agent, an attribute of the method's own receiver (`self.researcher`), a constant index into a literal list, tuple or dict, a walrus, tuple unpacking, and `setattr(a, "allow_delegation", True)`. It does not follow a computed index (`agents[i]`), a computed attribute name, a container filled in a loop or a comprehension, or an object built in another module.
 - **A visible import is required.** The rule needs `from crewai import Agent` (or `import crewai`) in the same file. A factory in that same file is followed; one in another module, a wildcard import, and dynamic construction are not. This is deliberate: without the import there is no evidence the class is the framework's, and claiming `LLM06` about someone's sales agent is worse than saying nothing.
 - **CrewAI's parameter only.** `allow_delegation` is a CrewAI concept. AutoGen and OpenAI Swarm have no equivalent, so running this against their code finds nothing. That's a check that didn't apply, not a clean bill of health.
 - **Source, not behaviour.** It doesn't run your agents, watch them, or prove anything about permission boundaries.
+
+Every one of these is a place where the honest answer is "not knowable without executing the code". The rule stays quiet there on purpose. A rule that guesses is worse than no rule.
 
 Zero findings means this rule didn't match. It doesn't mean your system is safe.
 
@@ -169,7 +172,7 @@ jobs:
 Or use the bundled action:
 
 ```yaml
-      - uses: robin-svensson/axiomgate-lint@main
+      - uses: robin-svensson/axiomgate-lint@v0.2.1
         with:
           target-path: ./src
           fail-on: high
@@ -184,6 +187,8 @@ With `--format github` the findings show up as annotations on the changed lines.
 Issues and pull requests are welcome, especially new rules and especially evidence that an existing rule is wrong.
 
 A new rule needs three things: a test that fails before the rule exists, a real pattern it matches, and a plain statement of what it can't see. A rule that guesses is worse than no rule.
+
+False positives are the worst failure this tool has, and false negatives are security bugs, not feature requests — there's an issue template for each. Everyone taking part is expected to follow the [code of conduct](CODE_OF_CONDUCT.md), and vulnerabilities go through [SECURITY.md](SECURITY.md) rather than the issue tracker.
 
 ```bash
 git clone https://github.com/robin-svensson/axiomgate-lint.git

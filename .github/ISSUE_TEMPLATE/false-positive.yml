@@ -1,0 +1,29 @@
+name: False positive
+description: The linter reported something that is not a CrewAI agent with delegation enabled
+labels: ["false positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A false positive is the worst failure this tool has. People stop reading
+        a linter that cries wolf, and then it is worse than nothing.
+  - type: textarea
+    id: code
+    attributes:
+      label: The smallest file that reproduces it
+      description: Whole file, including the imports. The import is part of the rule.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Output of `axiomgate-lint --version`
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Why this is not a finding
+    validations:
+      required: true

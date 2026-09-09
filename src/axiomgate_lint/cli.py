@@ -33,6 +33,47 @@ DELEGATION_MESSAGE = ("Unattenuated agent delegation enabled (allow_delegation=T
 DELEGATION_OWASP = "LLM06: Excessive Agency"
 
 
+_MISSING = object()
+
+
+def _const_index(node: ast.AST) -> Any:
+    """The value of a literal subscript, or `_MISSING` if it is computed.
+
+    `-1` is a unary minus over a constant, not a constant, so a plain
+    `isinstance(..., ast.Constant)` misses the last item of every list.
+    """
+    if isinstance(node, ast.Constant):
+        return node.value
+    if (isinstance(node, ast.UnaryOp)
+            and isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, int)
+            and not isinstance(node.operand.value, bool)):
+        return -node.operand.value
+    return _MISSING
+
+
+def _parameter_names(args: ast.arguments) -> Set[str]:
+    """Every name a call can bind in the function's own scope."""
+    names = {a.arg for a in
+             (*args.posonlyargs, *args.args, *args.kwonlyargs)}
+    for extra in (args.vararg, args.kwarg):
+        if extra is not None:
+            names.add(extra.arg)
+    return names
+
+
+def _is_staticmethod(node: ast.AST) -> bool:
+    """A staticmethod has no receiver, so its first parameter is an ordinary
+    argument and treating it as `self` would attribute agents to the class."""
+    for dec in node.decorator_list:
+        if isinstance(dec, ast.Name) and dec.id == "staticmethod":
+            return True
+        if isinstance(dec, ast.Attribute) and dec.attr == "staticmethod":
+            return True
+    return False
+
+
 def _enables_delegation(value: ast.AST) -> bool:
     """True for a literal that turns delegation on.
 
@@ -71,6 +112,16 @@ class _Scope:
     def __init__(self, parent: Optional["_Scope"] = None):
         self.parent = parent
         self.names: Dict[str, Any] = {}
+        # What `self` is called here, and the attributes of the class body this
+        # scope sits in. Shared by reference, not copied: `self.a = Agent(...)`
+        # in __init__ has to be visible to every other method of the class.
+        self.self_name: Optional[str] = parent.self_name if parent else None
+        self.self_attrs: Optional[Dict[str, Any]] = parent.self_attrs if parent else None
+        # True only for the scope of a class body itself. Deliberately not
+        # inherited: a function defined inside a method is not a method, and
+        # reading its first parameter as the receiver attributed a callback's
+        # argument to the class.
+        self.is_class_body = False
         if parent is not None:
             # A closure sees every name that was visible where it was written,
             # including names bound inside branches or other nested scopes.
@@ -103,9 +154,35 @@ class _Agent:
         self.delegating = delegating
 
 
+class _Container:
+    """A literal list, tuple or dict, and what each constant key holds.
+
+    A registry — `agents = {"researcher": Agent(...)}` — is how a crew of any
+    size is usually held. Delegation switched on through `agents["researcher"]`
+    was invisible, because only a plain name resolved to an agent.
+    """
+
+    def __init__(self, items: Dict[Any, Any]):
+        self.items = items
+
+
 def _constructor_enables(call: ast.Call) -> bool:
-    return any(kw.arg == "allow_delegation" and _enables_delegation(kw.value)
-               for kw in call.keywords)
+    for kw in call.keywords:
+        if kw.arg == "allow_delegation" and _enables_delegation(kw.value):
+            return True
+        # `Agent(**{"allow_delegation": True})` is the same decision, written
+        # as a spread. kw.arg is None there, so the keyword was never read and
+        # a factory that builds its config inline scanned clean. A dict held in
+        # a variable stays out of scope: its contents are not knowable without
+        # running the code, and guessing that every `**kwargs` delegates would
+        # report every factory in the project.
+        if kw.arg is None and isinstance(kw.value, ast.Dict):
+            for key, value in zip(kw.value.keys, kw.value.values):
+                if (isinstance(key, ast.Constant)
+                        and key.value == "allow_delegation"
+                        and _enables_delegation(value)):
+                    return True
+    return False
 
 
 def _is_import_error_handler(handler: ast.ExceptHandler) -> bool:
@@ -147,11 +224,29 @@ class _Analyzer:
         return self.findings
 
     def _agents_in(self, scope: _Scope) -> List["_Agent"]:
-        agents, current = [], scope
+        # Agents reachable from here, however they are held. Branch isolation
+        # resets their state, so an agent it cannot see is an agent one branch
+        # can silence in the other.
+        agents: List["_Agent"] = []
+        seen: Set[int] = set()
+        current: Optional[_Scope] = scope
         while current is not None:
-            agents.extend(v for v in current.names.values() if isinstance(v, _Agent))
+            for value in current.names.values():
+                self._collect(value, agents, seen)
             current = current.parent
+        if scope.self_attrs is not None:
+            for value in scope.self_attrs.values():
+                self._collect(value, agents, seen)
         return agents
+
+    def _collect(self, value: Any, agents: List["_Agent"], seen: Set[int]) -> None:
+        if isinstance(value, _Agent):
+            if id(value) not in seen:
+                seen.add(id(value))
+                agents.append(value)
+        elif isinstance(value, _Container):
+            for item in value.items.values():
+                self._collect(item, agents, seen)
 
     def branches(self, bodies: List[List[Any]], scope: _Scope) -> None:
         """Analyse mutually exclusive paths without letting one silence another.
@@ -180,16 +275,94 @@ class _Analyzer:
             if isinstance(sub, ast.Name):
                 scope.bind(sub.id, "other")
 
+    def resolve(self, node: ast.AST, scope: _Scope) -> Any:
+        """What an expression holds, where that is knowable without running it.
+
+        A plain name, an attribute of the method's own receiver, and a constant
+        index into a literal container. Anything computed — `agents[i]`, an
+        attribute of an object this file never built — resolves to nothing,
+        because reporting it would be a guess.
+        """
+        if isinstance(node, ast.Name):
+            return scope.lookup(node.id)
+
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            if (scope.self_attrs is not None
+                    and scope.self_name is not None
+                    and node.value.id == scope.self_name):
+                return scope.self_attrs.get(node.attr)
+            return None
+
+        if isinstance(node, ast.Subscript):
+            index = _const_index(node.slice)
+            if index is not _MISSING:
+                container = self.resolve(node.value, scope)
+                if isinstance(container, _Container):
+                    return container.items.get(index)
+        return None
+
+    def bind_self_attr(self, target: ast.Attribute, value: ast.AST,
+                       scope: _Scope) -> bool:
+        """`self.a = Agent(...)` names an agent as surely as `a = Agent(...)`.
+
+        Reported separately from `self.a.allow_delegation = True`, which is a
+        mutation of an attribute already bound, not a new binding.
+        """
+        if not (isinstance(target.value, ast.Name)
+                and scope.self_attrs is not None
+                and scope.self_name is not None
+                and target.value.id == scope.self_name
+                and target.attr != "allow_delegation"):
+            return False
+        scope.self_attrs[target.attr] = self.kind_of(value, scope)
+        return True
+
+    def bind_subscript(self, target: ast.Subscript, value: ast.AST,
+                       scope: _Scope) -> bool:
+        """`agents["r"] = Agent(...)` fills a slot the analyser already tracks."""
+        index = _const_index(target.slice)
+        if index is _MISSING:
+            return False
+        container = self.resolve(target.value, scope)
+        if not isinstance(container, _Container):
+            return False
+        container.items[index] = self.kind_of(value, scope)
+        return True
+
     def attribute_finding(self, target: ast.AST, value: ast.AST,
                           lineno: int, scope: _Scope) -> None:
         if (isinstance(target, ast.Attribute)
                 and target.attr == "allow_delegation"
-                and isinstance(target.value, ast.Name)
                 and _enables_delegation(value)):
-            held = scope.lookup(target.value.id)
+            held = self.resolve(target.value, scope)
             if isinstance(held, _Agent) and not held.delegating:
                 self.findings.append(_finding_at(self.file_path, lineno))
                 held.delegating = True
+
+    def setattr_finding(self, node: ast.AST, lineno: int, scope: _Scope) -> None:
+        """`setattr(a, "allow_delegation", True)` is an assignment spelled as a
+        call — the documented way to set an attribute, and the obvious way past
+        a linter that only reads assignment statements.
+
+        The attribute name has to be a literal. A computed name is not knowable
+        without running the code, and a shadowed `setattr` is not the builtin.
+        """
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "setattr"
+                and scope.lookup("setattr") is None
+                and len(node.args) == 3
+                and not node.keywords):
+            return
+        obj, name, value = node.args
+        if not (isinstance(name, ast.Constant) and name.value == "allow_delegation"):
+            return
+        if not _enables_delegation(value):
+            return
+        held = self.resolve(obj, scope)
+        if isinstance(held, _Agent) and not held.delegating:
+            self.findings.append(_finding_at(self.file_path, lineno))
+            held.delegating = True
 
     def is_agent_call(self, call: ast.Call, scope: _Scope) -> bool:
         if isinstance(call.func, ast.Name):
@@ -211,11 +384,18 @@ class _Analyzer:
             self.stmt(stmt, scope)
 
     def calls_in(self, node: ast.AST, scope: _Scope) -> None:
-        """Report agent constructions in an expression, binding nothing."""
+        """Report agent constructions in an expression.
+
+        Binds nothing except a walrus, which is an assignment: `if (a :=
+        Agent(...))` names the agent, and without the binding, delegation
+        switched on afterwards had nothing to attach to.
+        """
         for sub in ast.walk(node):
             if isinstance(sub, ast.Call) and self.is_agent_call(sub, scope):
                 if _constructor_enables(sub):
                     self.report(sub)
+            elif isinstance(sub, ast.NamedExpr) and isinstance(sub.target, ast.Name):
+                scope.bind(sub.target.id, self.kind_of(sub.value, scope))
 
     def stmt(self, node: Any, scope: _Scope) -> None:
         if isinstance(node, ast.ImportFrom):
@@ -239,7 +419,21 @@ class _Analyzer:
             # once, at import time. They construct real agents.
             self.calls_in(node.args, scope)
             scope.bind(node.name, "other")
-            self._deferred.append((node.body, _Scope(scope)))
+            inner = _Scope(scope)
+            # A method's receiver is whatever its first parameter is called.
+            # `self` is a convention, not a keyword, and a staticmethod has no
+            # receiver at all — its first parameter is an ordinary argument.
+            if scope.is_class_body:
+                # A method binds the receiver. A staticmethod has none, and its
+                # first parameter is an ordinary argument.
+                inner.self_name = (node.args.args[0].arg
+                                   if node.args.args and not _is_staticmethod(node)
+                                   else None)
+            elif inner.self_name in _parameter_names(node.args):
+                # A nested function taking a parameter of the same name shadows
+                # the receiver it closed over. Same name, different object.
+                inner.self_name = None
+            self._deferred.append((node.body, inner))
             return
 
         if isinstance(node, ast.ClassDef):
@@ -247,7 +441,14 @@ class _Analyzer:
                 self.calls_in(dec, scope)
             for base in node.bases:
                 self.calls_in(base, scope)
-            self.block(node.body, _Scope(scope))
+            body_scope = _Scope(scope)
+            # Each class gets its own attribute namespace. Two classes can both
+            # keep something called `a`; one of them holding an agent there does
+            # not make the other's attribute an agent.
+            body_scope.self_attrs = {}
+            body_scope.self_name = None
+            body_scope.is_class_body = True
+            self.block(node.body, body_scope)
             # Bound after the body, so a base class of the same name still
             # resolves to the import above it.
             scope.bind(node.name, "other")
@@ -286,6 +487,11 @@ class _Analyzer:
             self.branches([node.body, node.orelse], scope)
             return
 
+        if isinstance(node, ast.Expr):
+            self.calls_in(node.value, scope)
+            self.setattr_finding(node.value, node.lineno, scope)
+            return
+
         if isinstance(node, ast.Assign):
             self.assign(node, scope)
             return
@@ -296,8 +502,8 @@ class _Analyzer:
                 if isinstance(node.target, ast.Name):
                     scope.bind(node.target.id, self.kind_of(node.value, scope))
                 else:
-                    self.attribute_finding(node.target, node.value,
-                                           node.lineno, scope)
+                    self.target_assign(node.target, node.value,
+                                       node.lineno, scope)
             return
 
         if isinstance(node, ast.AugAssign):
@@ -317,8 +523,8 @@ class _Analyzer:
         self.calls_in(node.value, scope)
 
         for target in node.targets:
-            if isinstance(target, ast.Attribute):
-                self.attribute_finding(target, node.value, node.lineno, scope)
+            if isinstance(target, (ast.Attribute, ast.Subscript)):
+                self.target_assign(target, node.value, node.lineno, scope)
                 continue
 
             if isinstance(target, ast.Name):
@@ -330,11 +536,58 @@ class _Analyzer:
                     if isinstance(name_node, ast.Name):
                         scope.bind(name_node.id, self.kind_of(value_node, scope))
 
+    def target_assign(self, target: ast.AST, value: ast.AST,
+                      lineno: int, scope: _Scope) -> None:
+        """An assignment to something that is not a plain name.
+
+        Binding comes first: `self.a = Agent(...)` and `agents["a"] = Agent(...)`
+        name an agent. Only what binds nothing can be a mutation of one, and
+        that is where `allow_delegation = True` is reported.
+        """
+        if isinstance(target, ast.Attribute) and self.bind_self_attr(
+                target, value, scope):
+            return
+        if isinstance(target, ast.Subscript) and self.bind_subscript(
+                target, value, scope):
+            return
+        self.attribute_finding(target, value, lineno, scope)
+
     def kind_of(self, value: ast.AST, scope: _Scope) -> Any:
         """What a name now holds. Rebinding makes it a different agent, so the
         delegation state is replaced, never carried over from the old one."""
         if isinstance(value, ast.Call) and self.is_agent_call(value, scope):
             return _Agent(_constructor_enables(value))
+
+        if isinstance(value, (ast.List, ast.Tuple)):
+            # Both indices of every slot, so `agents[-1]` reaches the same agent
+            # as `agents[len - 1]` does at runtime.
+            items: Dict[Any, Any] = {}
+            for index, element in enumerate(value.elts):
+                if isinstance(element, ast.Starred):
+                    # A spread shifts every index after it by an unknown amount.
+                    # Guessing the positions would report the wrong line.
+                    return "other"
+                held = self.kind_of(element, scope)
+                items[index] = held
+                items[index - len(value.elts)] = held
+            return _Container(items)
+
+        if isinstance(value, ast.Dict):
+            items = {}
+            for key, element in zip(value.keys, value.values):
+                if not isinstance(key, ast.Constant):
+                    # `**other` or a computed key. What the dict holds is no
+                    # longer knowable slot by slot.
+                    return "other"
+                items[key.value] = self.kind_of(element, scope)
+            return _Container(items)
+
+        if isinstance(value, ast.Name):
+            # `b = a` is the same agent under a second name, not a copy.
+            held = scope.lookup(value.id)
+            if isinstance(held, (_Agent, _Container)):
+                return held
+
         return "other"
 
 

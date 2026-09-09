@@ -4,6 +4,65 @@ Notable changes to `axiomgate-lint`. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-09-09
+
+A second independent review before the community release. Six ways of turning
+delegation on scanned clean; each is now reproduced by a test that failed
+before the fix. No rule was loosened — every case below is a value the analyser
+can read in the file, never one it guesses at.
+
+### Fixed
+
+- **Delegation set on an attribute of the receiver.** `self.researcher.allow_delegation
+  = True` in a method was invisible: only plain names resolved to an agent, so
+  the class pattern CrewAI's own docs use went unreported. Attributes bound in
+  `__init__` are now visible to every method of the same class, each class keeps
+  its own namespace, the receiver may be called anything, and a `staticmethod`
+  has no receiver at all.
+- **Delegation set through a container.** `agents["researcher"].allow_delegation
+  = True` and `agents[0].allow_delegation = True` scanned clean. Literal lists,
+  tuples and dicts are now tracked slot by slot, including negative indices.
+  A computed index stays unreported.
+- **`setattr(agent, "allow_delegation", True)`.** An assignment written as a
+  call — the documented way to set an attribute, and the obvious way past a
+  linter that only reads assignment statements. A computed attribute name, or a
+  shadowed `setattr`, is still not guessed at.
+- **A literal dict spread into the constructor.** `Agent(**{"allow_delegation":
+  True})` is the same decision as the keyword, and the keyword was never read.
+  A dict held in a variable remains out of scope, and is documented as such.
+- **An agent bound by a walrus.** `if (a := Agent(role="r")): a.allow_delegation
+  = True` bound nothing, so the mutation had no agent to attach to.
+- **A second name for the same agent.** `b = a` now refers to the same agent
+  rather than to nothing, so delegation switched on through either name is
+  reported once.
+- **A callback's argument read as the receiver.** Found by review before
+  release, not in the field: a function defined inside a method was treated as
+  a method itself, so its first parameter resolved to the enclosing class's
+  attributes. `def helper(config): config.a.allow_delegation = True` reported a
+  finding about an object the file never built. Only a method of the class body
+  binds a receiver now, a nested function still closes over the real `self`,
+  and a parameter of the same name shadows it.
+
+### Changed
+
+- **`README` states the blind spots as they now stand.** Every remaining gap is
+  a value that is not knowable without executing the code, and says so.
+- **The bundled action is documented at a pinned tag**, not `@main`. A workflow
+  pinned to a branch runs whatever was pushed last.
+
+### Added
+
+- **CI builds the distribution, runs `twine check --strict`, and installs the
+  wheel in a clean environment.** Broken packaging was previously found at
+  release time, after the tag was pushed.
+- **CI runs the composite action against both examples**, and fails if the
+  known-vulnerable one passes. Nothing else in CI executed `action.yml`.
+- **`MANIFEST.in`.** The sdist now ships the examples, `CHANGELOG.md`,
+  `SECURITY.md`, `action.yml` and the tests.
+- **Python 3.14** in the test matrix and the classifiers.
+- **PEP 639 license metadata** (`License-Expression: MIT`), replacing the form
+  setuptools deprecated.
+
 ## [0.2.0] — 2026-09-08
 
 An independent pre-launch review found seven bugs in 0.1.0. Every one of them

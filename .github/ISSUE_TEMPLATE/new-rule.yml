@@ -1,0 +1,26 @@
+name: New rule
+description: Propose a check the linter does not make yet
+labels: ["rule proposal"]
+body:
+  - type: textarea
+    id: pattern
+    attributes:
+      label: The pattern, as it appears in real code
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: What goes wrong, and which OWASP LLM category it maps to
+    validations:
+      required: true
+  - type: textarea
+    id: blind-spots
+    attributes:
+      label: What the rule could not see
+      description: >
+        Every rule has a boundary. Naming it up front is what keeps the tool
+        honest — a rule that guesses is worse than no rule.
+    validations:
+      required: true

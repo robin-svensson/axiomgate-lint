@@ -1,0 +1,10 @@
+# The sdist is what a distribution packager builds from. Without these, the
+# examples that prove the linter works, the changelog and the disclosure policy
+# exist only on GitHub.
+include LICENSE
+include README.md
+include CHANGELOG.md
+include SECURITY.md
+include action.yml
+recursive-include examples *.py
+recursive-include tests *.py

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
     - uses: actions/checkout@v4
@@ -28,3 +28,53 @@ jobs:
       run: pytest -v
     - name: Dogfood — lint self
       run: axiomgate-lint ./src --fail-on high
+
+  package:
+    # A wheel that does not build, or metadata PyPI rejects, is found at
+    # release time otherwise — after the tag is already pushed.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Build and check the distribution
+      run: |
+        python -m pip install --upgrade pip build twine
+        python -m build
+        twine check --strict dist/*
+    - name: Install the built wheel in a clean environment
+      run: |
+        python -m venv /tmp/wheeltest
+        /tmp/wheeltest/bin/pip install dist/*.whl
+        /tmp/wheeltest/bin/axiomgate-lint --version
+        /tmp/wheeltest/bin/axiomgate-lint examples/safe_crew.py
+
+  action:
+    # The composite action is what most users run. Nothing else in CI executes
+    # it, so a broken action.yml shipped green.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: The safe example finds nothing
+      uses: ./
+      with:
+        target-path: ./examples/safe_crew.py
+        fail-on: high
+    - name: The linter's own source finds nothing
+      uses: ./
+      with:
+        target-path: ./src
+        fail-on: high
+    - name: The known-vulnerable example still fails the build
+      id: vulnerable
+      continue-on-error: true
+      uses: ./
+      with:
+        target-path: ./examples/vulnerable_crew.py
+        fail-on: high
+    - name: A silent action is not a passing action
+      if: steps.vulnerable.outcome == 'success'
+      run: |
+        echo "The action passed a file with a known HIGH finding." >&2
+        exit 1

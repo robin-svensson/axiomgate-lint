@@ -1,0 +1,24 @@
+name: False negative
+description: Delegation is enabled and the linter stayed quiet
+labels: ["false negative"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check `What it misses` in the README first. Some gaps are deliberate:
+        where a value is only knowable by running the code, the rule stays
+        quiet on purpose. If yours is listed there, it is documented, not a bug
+        — though an issue arguing that it should be closable is still welcome.
+  - type: textarea
+    id: code
+    attributes:
+      label: The smallest file that reproduces it
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Output of `axiomgate-lint --version`
+    validations:
+      required: true

@@ -728,3 +728,343 @@ def test_a_closure_sees_the_scope_where_it_was_defined(tmp_path):
     )
     findings, _ = scan_file(str(f))
     assert len(findings) == 2, "the closure's line is a finding of its own"
+
+
+# =============================================================================
+# Fifth review, 2026-09-09, before the community release. Every case below is a
+# real CrewAI file with delegation switched on that the linter reported clean —
+# exit 0 — and that the README did not list as a blind spot. A false negative
+# the documentation does not admit to is the failure mode this project exists
+# to avoid: a clean result that means nothing.
+# =============================================================================
+
+# --- The keyword does not have to be written as a keyword ---------------------
+# `_constructor_enables` read `kw.arg`, which is None for a `**` spread. A
+# literal dict spread into the constructor is the same decision, written
+# differently, and it is what a factory that builds config inline looks like.
+
+def test_a_literal_dict_spread_into_the_constructor_is_caught(tmp_path):
+    """`Agent(**{"allow_delegation": True})` turns delegation on exactly as the
+    keyword does. The spread has kw.arg None, so it was never inspected."""
+    f = tmp_path / "spread.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(**{'role': 'r', 'allow_delegation': True})\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_a_literal_dict_spread_without_delegation_is_not_flagged(tmp_path):
+    """Reading the spread must not turn every spread into a finding."""
+    f = tmp_path / "spread_clean.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(**{'role': 'r', 'allow_delegation': False})\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+def test_a_dict_variable_spread_stays_a_documented_blind_spot(tmp_path):
+    """A dict built elsewhere is not visible without executing the code.
+    Guessing that any `**kwargs` enables delegation would report every factory
+    in the project. It stays unreported, and the README says so."""
+    f = tmp_path / "spread_var.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "kw = {'allow_delegation': True}\n"
+        "a = Agent(**kw)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+# --- setattr is an assignment spelled as a call -------------------------------
+# `setattr(a, "allow_delegation", True)` is the documented way to set an
+# attribute whose name is computed, and the obvious way around a linter that
+# only reads assignments.
+
+def test_setattr_with_a_literal_name_is_caught(tmp_path):
+    f = tmp_path / "setattr_lit.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r')\n"
+        "setattr(a, 'allow_delegation', True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_setattr_with_a_computed_name_is_not_guessed_at(tmp_path):
+    """The attribute name is not knowable without running the code. Reporting
+    it anyway would be a guess, and a guessing rule is worse than no rule."""
+    f = tmp_path / "setattr_var.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r')\n"
+        "setattr(a, name, True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+def test_setattr_on_something_that_is_not_an_agent_is_not_flagged(tmp_path):
+    f = tmp_path / "setattr_other.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "cfg = object()\n"
+        "setattr(cfg, 'allow_delegation', True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+# --- The walrus binds a name --------------------------------------------------
+# `if (a := Agent(...)):` constructs an agent and names it. The construction was
+# reported when the constructor carried the flag, but the name was never bound,
+# so delegation switched on afterwards was invisible.
+
+def test_a_walrus_bound_agent_is_tracked(tmp_path):
+    f = tmp_path / "walrus.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "if (a := Agent(role='r')):\n"
+        "    a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+# --- An agent held on self ----------------------------------------------------
+# `self.agent = Agent(...)` in __init__ and `self.agent.allow_delegation = True`
+# in another method is the wrapper-class shape. `attribute_finding` required the
+# object to be a plain Name, so `self.agent` matched nothing and the file was
+# reported clean.
+
+def test_delegation_set_on_a_self_attribute_is_caught(tmp_path):
+    f = tmp_path / "selfattr.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class Wrapper:\n"
+        "    def __init__(self):\n"
+        "        self.a = Agent(role='r')\n"
+        "    def enable(self):\n"
+        "        self.a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_a_self_attribute_that_is_not_an_agent_is_not_flagged(tmp_path):
+    """Only an attribute seen built from a framework agent counts. `self.cfg`
+    is somebody's own object and claiming LLM06 about it is the false positive
+    this project removed in 0.2.0."""
+    f = tmp_path / "selfother.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class Wrapper:\n"
+        "    def __init__(self):\n"
+        "        self.cfg = dict()\n"
+        "    def enable(self):\n"
+        "        self.cfg.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+def test_a_self_attribute_is_not_shared_between_classes(tmp_path):
+    """Two classes can both call an attribute `a`. One class holding an agent
+    there does not make the other's attribute an agent."""
+    f = tmp_path / "twoclasses.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class HasAgent:\n"
+        "    def __init__(self):\n"
+        "        self.a = Agent(role='r')\n"
+        "class HasSomethingElse:\n"
+        "    def __init__(self):\n"
+        "        self.a = dict()\n"
+        "    def enable(self):\n"
+        "        self.a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+def test_a_self_attribute_rebound_to_a_new_agent_is_a_new_agent(tmp_path):
+    """Rebinding replaces the delegation state, exactly as for a plain name."""
+    f = tmp_path / "selfrebind.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class Wrapper:\n"
+        "    def __init__(self):\n"
+        "        self.a = Agent(role='r', allow_delegation=True)\n"
+        "        self.a = Agent(role='r2')\n"
+        "        self.a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 2
+
+
+def test_the_receiver_name_does_not_have_to_be_self(tmp_path):
+    """`self` is a convention, not a keyword. The first positional parameter is
+    what the method actually binds."""
+    f = tmp_path / "notself.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class Wrapper:\n"
+        "    def __init__(this):\n"
+        "        this.a = Agent(role='r')\n"
+        "    def enable(this):\n"
+        "        this.a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+# --- Agents held in a literal container ---------------------------------------
+# A registry — `agents = {"researcher": Agent(...)}` — then
+# `agents["researcher"].allow_delegation = True`. The construction was reported
+# only if the flag was in the constructor; the later mutation was invisible.
+
+def test_delegation_set_through_a_literal_dict_is_caught(tmp_path):
+    f = tmp_path / "dictreg.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "agents = {'r': Agent(role='r')}\n"
+        "agents['r'].allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_delegation_set_through_a_literal_list_is_caught(tmp_path):
+    f = tmp_path / "listreg.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "agents = [Agent(role='r'), Agent(role='w')]\n"
+        "agents[1].allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_an_index_holding_something_else_is_not_flagged(tmp_path):
+    f = tmp_path / "mixed.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "things = [Agent(role='r'), dict()]\n"
+        "things[1].allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+def test_a_computed_index_is_not_guessed_at(tmp_path):
+    """Which element `agents[i]` is cannot be known without running the code."""
+    f = tmp_path / "computed.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "agents = [Agent(role='r')]\n"
+        "agents[i].allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 0
+
+
+def test_a_negative_index_reaches_the_agent_it_counts_back_to(tmp_path):
+    """`agents[-1]` is a literal index, but `-1` parses as a unary minus over a
+    constant, not a constant. The last agent in a list went unread."""
+    f = tmp_path / "crew.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "agents = [Agent(role='r'), Agent(role='s')]\n"
+        "agents[-1].allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+    assert findings[0]["line"] == 3
+
+
+def test_a_negative_index_past_the_end_is_not_guessed_at(tmp_path):
+    """`agents[-3]` of a two-item list raises at runtime. It holds no agent, and
+    reporting one would be a finding about code that never runs."""
+    f = tmp_path / "crew.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "agents = [Agent(role='r'), Agent(role='s')]\n"
+        "agents[-3].allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == []
+
+
+def test_a_function_nested_in_a_method_does_not_own_a_receiver(tmp_path):
+    """A function defined inside a method is not a method. Its first parameter
+    was read as the receiver, so an unrelated callback argument resolved to the
+    class's attributes and reported a finding about an object it never saw."""
+    f = tmp_path / "crew.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class C:\n"
+        "    def outer(self):\n"
+        "        self.a = Agent(role='r')\n"
+        "        def helper(config):\n"
+        "            config.a.allow_delegation = True\n"
+        "        helper(object())\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == []
+
+
+def test_a_nested_function_cannot_invent_an_attribute_on_the_class(tmp_path):
+    """The nested function's parameter wrote into the class's attribute table,
+    so `self.b` resolved to an agent that the class never binds."""
+    f = tmp_path / "crew.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class C:\n"
+        "    def outer(self):\n"
+        "        def helper(config):\n"
+        "            config.b = Agent(role='s')\n"
+        "        helper(object())\n"
+        "        self.b.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == []
+
+
+def test_a_closure_over_the_real_receiver_is_still_tracked(tmp_path):
+    """`self` inside a nested function is the method's own receiver, closed
+    over. Dropping the receiver entirely would reopen the gap 0.2.1 closed."""
+    f = tmp_path / "crew.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class C:\n"
+        "    def outer(self):\n"
+        "        self.a = Agent(role='r')\n"
+        "        def helper():\n"
+        "            self.a.allow_delegation = True\n"
+        "        helper()\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+    assert findings[0]["line"] == 6
+
+
+def test_a_parameter_that_shadows_the_receiver_is_not_the_receiver(tmp_path):
+    """A nested function taking its own `self` shadows the method's. The name
+    is the same; the object is whatever the caller passed."""
+    f = tmp_path / "crew.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class C:\n"
+        "    def outer(self):\n"
+        "        self.a = Agent(role='r')\n"
+        "        def helper(self):\n"
+        "            self.a.allow_delegation = True\n"
+        "        helper(object())\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == []
