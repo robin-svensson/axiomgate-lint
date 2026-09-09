@@ -62,6 +62,18 @@ can read in the file, never one it guesses at.
 - **Python 3.14** in the test matrix and the classifiers.
 - **PEP 639 license metadata** (`License-Expression: MIT`), replacing the form
   setuptools deprecated.
+- **`actions/checkout@v7` and `actions/setup-python@v7`**, in CI, in the bundled
+  action and in the README's example workflow. The previous majors run on
+  Node 20, which GitHub's runners now force onto Node 24 with a deprecation
+  warning and will eventually refuse. The bundled action ships to every
+  consumer, so that one was theirs to hit, not ours.
+
+### Fixed in the documentation
+
+- **The sample output in the README was not what the tool prints.** It showed a
+  path relative to the target and wrapped the message across two lines. Text
+  output gives an absolute path on a single line. A security tool whose own
+  README misquotes it is not a good start.
 
 ## [0.2.0] — 2026-09-08
 

@@ -111,9 +111,8 @@ Something matched:
 Target: /path/to/your/project
 Total findings: 1
 
-[HIGH] AG-DEL-001 at src/crew.py:29
-  Unattenuated agent delegation enabled (allow_delegation=True).
-  Vulnerable to excessive agency loops. (LLM06: Excessive Agency)
+[HIGH] AG-DEL-001 at /path/to/your/project/src/crew.py:29
+  Unattenuated agent delegation enabled (allow_delegation=True). Vulnerable to excessive agency loops. (LLM06: Excessive Agency)
   -> Set allow_delegation=False or add a human-in-the-loop gate before delegation.
 ```
 
@@ -161,8 +160,8 @@ jobs:
   lint-agents:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: pip install git+https://github.com/robin-svensson/axiomgate-lint.git
