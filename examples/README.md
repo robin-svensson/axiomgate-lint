@@ -26,7 +26,7 @@ No findings, exit code `0`.
 | Code | Meaning |
 |---|---|
 | `0` | Scanned, nothing at or above the threshold |
-| `1` | Could not scan. The target does not exist |
+| `1` | Could not scan: the target does not exist, a flag was used wrongly, or `--strict` was set and a file could not be read while nothing was found |
 | `2` | Scanned, found something at or above the threshold |
 
 Code `1` matters more than it looks. `axiomgate-lint ./scr` is a typo, and a

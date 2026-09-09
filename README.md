@@ -37,6 +37,8 @@ No dependencies. No network calls. No API keys. Nothing leaves your machine, and
 
 One rule so far. It's a real one, and the tool doesn't claim more than it checks.
 
+The rule fires only when the file imports the framework. A class of your own that happens to be called `Agent` — a sales agent, an insurance broker — is not CrewAI's, and reporting it as `LLM06` would be a false alarm about code that has nothing to do with LLMs.
+
 ---
 
 ## What it misses
@@ -44,7 +46,9 @@ One rule so far. It's a real one, and the tool doesn't claim more than it checks
 A security tool that hides its blind spots is worse than no tool, because people trust it. Here are the current ones.
 
 - **Python files only.** CrewAI's newer pattern puts agent config in `agents.yaml`. Delegation turned on there is invisible to this linter.
-- **Literal values only.** It catches `allow_delegation=True`. It won't catch `allow_delegation=cfg.delegate` or a value read from the environment.
+- **Literal values only.** It catches `allow_delegation=True` and `allow_delegation=1`, set either in the constructor or as `agent.allow_delegation = True` on a variable it can see was built from a framework agent. It won't catch `allow_delegation=cfg.delegate`, a value read from the environment, or a flag flipped through a reference it can't follow.
+- **Agents it can't follow to a name.** It tracks delegation switched on through a variable it saw built from a framework agent, including tuple unpacking. Agents constructed inside a loop or a comprehension and mutated through the loop variable are not tracked.
+- **A visible import is required.** The rule needs `from crewai import Agent` (or `import crewai`) in the same file. A factory in that same file is followed; one in another module, a wildcard import, and dynamic construction are not. This is deliberate: without the import there is no evidence the class is the framework's, and claiming `LLM06` about someone's sales agent is worse than saying nothing.
 - **CrewAI's parameter only.** `allow_delegation` is a CrewAI concept. AutoGen and OpenAI Swarm have no equivalent, so running this against their code finds nothing. That's a check that didn't apply, not a clean bill of health.
 - **Source, not behaviour.** It doesn't run your agents, watch them, or prove anything about permission boundaries.
 
@@ -113,7 +117,7 @@ Total findings: 1
 ### Options
 
 ```
-axiomgate-lint [target] [--fail-on critical|high|medium|low|any] [--format text|json|github] [--version]
+axiomgate-lint [target] [--fail-on critical|high|medium|low|any] [--format text|json|github] [--strict] [--version]
 ```
 
 | Flag | Default | Does |
@@ -121,18 +125,23 @@ axiomgate-lint [target] [--fail-on critical|high|medium|low|any] [--format text|
 | `target` | `.` | Directory or file to scan |
 | `--fail-on` | `high` | Severity at or above which the run exits 2 |
 | `--format` | `text` | `text` to read, `json` for tooling, `github` for CI annotations |
+| `--strict` | off | Exit `1` if any file could not be read or parsed |
 
 ### Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | Scanned, nothing at or above the threshold |
-| `1` | Could not scan. The target doesn't exist |
+| `1` | Could not scan: the target doesn't exist, a flag was used wrongly, or `--strict` was set and a file could not be read while nothing was found |
 | `2` | Scanned, found something at or above the threshold |
 
 Code `1` earns its place. `axiomgate-lint ./scr` is a typo, and a tool that answers "0 findings, exit 0" to a path it never opened hands you a green pipeline for a scan that never ran. Scanning nothing and finding nothing are different results and only one of them should pass.
 
-Individual files that can't be parsed or read are reported as warnings and don't change the exit code. If the linter couldn't read something, it says so instead of skipping it quietly.
+Individual files that can't be parsed or read are reported as warnings and don't change the exit code. The count also appears in the summary, so "0 findings" is never the whole story when part of the tree went unread. Pass `--strict` to make that a failure instead.
+
+A usage error — a mistyped flag — exits `1`, not argparse's usual `2`. In a pipeline, `2` means a finding, and a typo should not look like a vulnerability.
+
+A finding outranks an unreadable file: with `--strict`, a run that finds something still exits `2`. Downgrading a real finding to "could not scan" because an unrelated file had a syntax error would send it down a pipeline's retry branch instead of its security branch.
 
 ---
 

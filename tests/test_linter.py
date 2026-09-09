@@ -218,3 +218,513 @@ def test_the_users_own_code_is_still_scanned(tmp_path):
     )
     findings, _ = scan_directory(str(tmp_path))
     assert len(findings) == 1, "skipping environments must not skip the project"
+
+
+# =============================================================================
+# Findings from the pre-launch review, 2026-09-08. Each test below reproduces a
+# bug that shipped in the published repository. They were written to fail.
+# =============================================================================
+
+# --- A name is not a framework -----------------------------------------------
+# The scanner matched any call to something spelled `Agent`, never checking
+# where that name came from. An insurance broker's `Agent(name=..., 
+# allow_delegation=True)` — no CrewAI, no LLM, no AI at all — was reported as
+# `LLM06: Excessive Agency`. Claiming a vulnerability in code that does not
+# import the framework is the fastest way to lose a technical audience.
+
+def test_a_locally_defined_agent_class_is_not_crewai(tmp_path):
+    """A class named Agent, defined in this very file, is not CrewAI's."""
+    f = tmp_path / "broker.py"
+    f.write_text(
+        "class Agent:\n"
+        "    def __init__(self, name, allow_delegation=False): ...\n"
+        "seller = Agent(name='Anna', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == [], "a local class that shares the name is not the framework"
+
+
+def test_an_unrelated_librarys_agent_is_not_flagged(tmp_path):
+    """`from myshop import Agent` is somebody's sales rep, not an LLM agent."""
+    f = tmp_path / "shop.py"
+    f.write_text(
+        "from myshop import Agent\n"
+        "rep = Agent(name='Bo', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == [], "only the frameworks the rule is about should match"
+
+
+def test_the_real_crewai_agent_is_still_caught(tmp_path):
+    """Rejecting look-alikes must not start rejecting the genuine article."""
+    f = tmp_path / "crew.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_an_import_alias_is_still_caught(tmp_path):
+    """`from crewai import Agent as A` is the same class under another name."""
+    f = tmp_path / "aliased.py"
+    f.write_text(
+        "from crewai import Agent as A\n"
+        "a = A(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1, "an alias hides the name, not the risk"
+
+
+def test_a_module_qualified_call_is_caught(tmp_path):
+    """`crewai.Agent(...)` is the framework's class, reached the other way."""
+    f = tmp_path / "qualified.py"
+    f.write_text(
+        "import crewai\n"
+        "a = crewai.Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_autogen_is_not_flagged(tmp_path):
+    """README says `allow_delegation` is a CrewAI concept and that AutoGen has
+    no equivalent. Flagging AutoGen anyway would claim a finding about a
+    parameter that framework does not have."""
+    f = tmp_path / "ag.py"
+    f.write_text(
+        "from autogen import ConversableAgent\n"
+        "a = ConversableAgent(name='x', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == [], "the rule is about CrewAI, as the documentation says"
+
+
+# --- Where the project happens to live is not a filter -----------------------
+# The directory filter tested every component of the *absolute* path against
+# IGNORED_DIRS. `main()` makes the target absolute, so a project cloned into
+# ~/build/proj or a CI workspace under build/ had every one of its files
+# skipped: "Total findings: 0", exit 0, no warning. A green pass for code that
+# was never opened — the exact failure the exit-code design exists to prevent.
+
+def test_a_parent_directory_named_build_does_not_silence_the_scan(tmp_path):
+    """Cloning into ~/build/proj must not turn the scan into a green no-op."""
+    proj = tmp_path / "build" / "proj"
+    proj.mkdir(parents=True)
+    (proj / "crew.py").write_text(
+        "from crewai import Agent\na = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_directory(str(proj))
+    assert len(findings) == 1, "an ancestor's name says nothing about the target"
+
+
+def test_a_parent_directory_named_venv_does_not_silence_the_scan(tmp_path):
+    """Same failure, and 'venv' is a likelier ancestor name than most."""
+    proj = tmp_path / "venv" / "proj"
+    proj.mkdir(parents=True)
+    (proj / "crew.py").write_text(
+        "from crewai import Agent\na = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_directory(str(proj))
+    assert len(findings) == 1
+
+
+def test_site_packages_outside_a_venv_is_the_users_own_code(tmp_path):
+    """A directory called site-packages with no venv above it is just a
+    directory. The comment in the source says a name is not evidence; the
+    site-packages check went on treating it as evidence anyway."""
+    d = tmp_path / "proj" / "site-packages"
+    d.mkdir(parents=True)
+    (d / "crew.py").write_text(
+        "from crewai import Agent\na = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_directory(str(tmp_path))
+    assert len(findings) == 1, "no pyvenv.cfg and no lib/ above it: this is source"
+
+
+# --- A byte order mark is not a syntax error ---------------------------------
+# Files saved by Windows editors begin with a UTF-8 BOM. Python itself reads
+# them without complaint. Opening with "utf-8" instead of "utf-8-sig" left the
+# BOM in the source, ast.parse raised on U+FEFF, and a real finding on line 2
+# was reported as an unparseable file — a warning on stderr and exit 0.
+
+def test_a_byte_order_mark_does_not_hide_a_finding(tmp_path):
+    """A BOM is an encoding artefact. Python runs the file; so must we."""
+    f = tmp_path / "windows.py"
+    f.write_bytes(
+        b"\xef\xbb\xbffrom crewai import Agent\n"
+        b"a = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, warnings = scan_file(str(f))
+    assert len(findings) == 1, "a BOM must not turn real code into a syntax error"
+    assert warnings == []
+
+
+# --- Unscannable files must at least be countable ----------------------------
+# README documents that unreadable files stay warnings and do not change the
+# exit code. That is a deliberate choice, so it stands — but a security tool
+# whose default is "some of this was never read, exit 0" needs a way to be
+# strict, and the count has to reach the summary rather than only stderr.
+
+def test_strict_makes_an_unreadable_file_fail_the_run(tmp_path):
+    (tmp_path / "bad.py").write_text("def broken(")
+    r = _run(str(tmp_path), "--strict")
+    assert r.returncode == 1, "--strict means a file we could not read is a failure"
+
+
+def test_without_strict_an_unreadable_file_still_exits_zero(tmp_path):
+    """The documented default must not change underneath existing users."""
+    (tmp_path / "bad.py").write_text("def broken(")
+    r = _run(str(tmp_path))
+    assert r.returncode == 0
+
+
+# --- GitHub annotation properties are comma-delimited ------------------------
+# `::error file=<path>,line=...` splits on commas. A path containing one ended
+# the file property early and GitHub dropped or misplaced the annotation. The
+# workflow-command format requires percent-encoding.
+
+def test_github_escapes_commas_in_the_file_path():
+    """A comma in a path silently truncated the annotation's file property."""
+    out = _github_output([_finding(file=os.path.join(os.getcwd(), "a,b", "c.py"))],
+                         SEVERITY_LEVELS["high"])
+    assert "a%2Cb" in out, "a comma in a property must be percent-encoded"
+    assert out.count(",line=") == 1
+
+
+def test_github_escapes_newlines_in_the_message():
+    """A newline in a message ends the annotation early."""
+    f = _finding()
+    f["message"] = "line one\nline two"
+    out = _github_output([f], SEVERITY_LEVELS["high"])
+    assert "\n" not in out.rstrip("\n")
+    assert "%0A" in out
+
+
+# --- Delegation turned on after construction ---------------------------------
+# `a = Agent(...)` then `a.allow_delegation = True` has exactly the runtime
+# effect the rule is about, and was invisible: the keyword search only ever
+# looked inside the Call node.
+
+def test_delegation_enabled_after_construction_is_caught(tmp_path):
+    """Same runtime effect, one line later, and the scanner saw nothing."""
+    f = tmp_path / "later.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r')\n"
+        "a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1, "the flag is the risk, not the line it is set on"
+
+
+def test_attribute_assignment_on_an_unrelated_object_is_not_flagged(tmp_path):
+    """Tracking assignment must not start flagging anything with the word."""
+    f = tmp_path / "unrelated.py"
+    f.write_text(
+        "config = dict()\n"
+        "config.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == []
+
+
+# --- Exit 2 is a finding, not a usage error ----------------------------------
+# argparse exits 2 on an unknown flag. Exit 2 is also this tool's "found a
+# vulnerability". A CI script could not tell a typo in a flag from a security
+# finding.
+
+def test_a_bad_flag_is_not_reported_as_a_security_finding(tmp_path):
+    r = _run(str(tmp_path), "--fail-on", "nonsense")
+    assert r.returncode != 2, "a usage error must not look like a vulnerability"
+    assert r.returncode == 1
+
+
+# =============================================================================
+# Findings from the independent review of the fixes, 2026-09-08. Fixing the
+# false positives introduced a false negative, which is the worse direction.
+# =============================================================================
+
+def test_a_method_named_agent_elsewhere_does_not_hide_a_real_finding(tmp_path):
+    """Requiring the import was right; suppressing on any name collision
+    anywhere in the file was not. A method called Agent, in an unrelated class,
+    silenced a genuine CrewAI finding for the whole file — a green CI run over
+    an agent that really can delegate."""
+    f = tmp_path / "shadow.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class Foo:\n"
+        "    def Agent(self):\n"
+        "        pass\n"
+        "a = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1, "a name in another scope does not rebind the import"
+
+
+def test_a_module_level_class_really_does_shadow_the_import(tmp_path):
+    """The suppression still has to work where it is actually true."""
+    f = tmp_path / "real_shadow.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "class Agent:\n"
+        "    def __init__(self, **kw): ...\n"
+        "a = Agent(allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == [], "a module-level class of the same name is what runs"
+
+
+def test_a_finding_outranks_an_unreadable_file_under_strict(tmp_path):
+    """--strict must not downgrade a real vulnerability to 'could not scan'.
+    A pipeline branching on exit 2 would route a HIGH finding to retry."""
+    (tmp_path / "bad.py").write_text("def broken(")
+    (tmp_path / "crew.py").write_text(
+        "from crewai import Agent\na = Agent(role='r', allow_delegation=True)\n"
+    )
+    r = _run(str(tmp_path), "--strict")
+    assert r.returncode == 2, "the finding is the more important signal"
+
+
+def test_one_agent_is_reported_once(tmp_path):
+    """Constructor plus a redundant reassignment is one risk, not two.
+    Counting it twice inflates the total for the same underlying agent."""
+    f = tmp_path / "double.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r', allow_delegation=True)\n"
+        "a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1, "one agent, one finding"
+
+
+# =============================================================================
+# Second review of the fixes, 2026-09-08. Name resolution was still a flat,
+# file-wide guess. These require it to follow scope.
+# =============================================================================
+
+def test_a_class_named_agent_in_a_nested_scope_is_not_crewai(tmp_path):
+    """The import lives in a function nobody calls; the Agent being built is a
+    local class three scopes down. Matching them to each other because both
+    names appear somewhere in the file is the same false positive as before,
+    one scope deeper."""
+    f = tmp_path / "nested.py"
+    f.write_text(
+        "def unused_helper():\n"
+        "    from crewai import Agent\n"
+        "    return Agent\n"
+        "class Foo:\n"
+        "    def build(self):\n"
+        "        class Agent:\n"
+        "            def __init__(self, **kw): pass\n"
+        "        return Agent(name='x', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == [], "a class defined in this scope is the one being called"
+
+
+def test_a_reused_variable_still_reports_the_second_agent(tmp_path):
+    """Two constructions, one variable name. Deduplicating on the name meant
+    the second agent's delegation was never reported — a silently missed HIGH,
+    which is the worse direction for a security tool."""
+    f = tmp_path / "reuse.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r1', allow_delegation=True)\n"
+        "a = Agent(role='r2')\n"
+        "a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 2, "rebinding the name makes it a different agent"
+
+
+def test_tuple_unpacked_agents_are_tracked(tmp_path):
+    """`a, b = Agent(...), Agent(...)` binds two agents. Only handling a bare
+    Call on the right-hand side lost both."""
+    f = tmp_path / "tup.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a, b = Agent(role='a'), Agent(role='b')\n"
+        "b.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+    assert findings[0]["line"] == 3
+
+
+def test_an_import_error_fallback_does_not_suppress_the_import(tmp_path):
+    """The optional-dependency pattern. When crewai is installed, the agent is
+    the real one; treating the except-branch stub as a shadowing assignment
+    would hide every finding in files that guard their imports."""
+    f = tmp_path / "optional.py"
+    f.write_text(
+        "try:\n"
+        "    from crewai import Agent\n"
+        "except ImportError:\n"
+        "    Agent = None\n"
+        "a = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_a_function_local_agent_is_still_caught(tmp_path):
+    """Scope awareness must not stop finding agents built inside functions."""
+    f = tmp_path / "infunc.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "def build():\n"
+        "    a = Agent(role='r')\n"
+        "    a.allow_delegation = True\n"
+        "    return a\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+# =============================================================================
+# Third review, 2026-09-08. Scope resolution was right in shape and incomplete
+# in coverage: ordinary Python that binds or mutates a name went unseen.
+# =============================================================================
+
+def test_an_agent_in_a_default_argument_is_caught(tmp_path):
+    """A default argument is evaluated once, at import time. It is real code
+    that really constructs the agent, and it was invisible."""
+    f = tmp_path / "default.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "def build(a=Agent(role='r', allow_delegation=True)):\n"
+        "    return a\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+
+
+def test_augmented_assignment_enabling_delegation_is_caught(tmp_path):
+    """`a.allow_delegation |= True` turns it on exactly as `= True` does."""
+    f = tmp_path / "aug.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r', allow_delegation=False)\n"
+        "a.allow_delegation |= True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+    assert findings[0]["line"] == 3
+
+
+def test_an_annotated_assignment_is_tracked(tmp_path):
+    """`a: Agent = Agent(...)` binds the name like any other assignment."""
+    f = tmp_path / "ann.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a: Agent = Agent(role='r')\n"
+        "a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1
+    assert findings[0]["line"] == 3
+
+
+def test_a_function_defined_before_the_import_still_resolves(tmp_path):
+    """Names in a function body are looked up when the function runs, not
+    where it is written. Analysing bodies in text order meant a helper defined
+    above its import saw no CrewAI at all."""
+    f = tmp_path / "order.py"
+    f.write_text(
+        "def make():\n"
+        "    return Agent(role='r', allow_delegation=True)\n"
+        "from crewai import Agent\n"
+        "make()\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 1, "module-level imports are in place before any call"
+
+
+def test_rebinding_the_name_with_as_is_not_an_agent(tmp_path):
+    """`with open(...) as Agent` leaves Agent pointing at a file object."""
+    f = tmp_path / "withas.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "with open('x') as Agent:\n"
+        "    pass\n"
+        "a = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == []
+
+
+def test_a_loop_variable_rebinds_the_name(tmp_path):
+    """`for Agent in ...` does the same."""
+    f = tmp_path / "foras.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "for Agent in [1, 2]:\n"
+        "    pass\n"
+        "a = Agent(role='r', allow_delegation=True)\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert findings == []
+
+
+def test_both_branches_of_an_if_are_reported(tmp_path):
+    """The branches are mutually exclusive, so each is its own decision point.
+    Sharing one delegation state let the first branch analysed silence the
+    second, hiding a line a reviewer needs to see."""
+    f = tmp_path / "branch.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "a = Agent(role='r', allow_delegation=False)\n"
+        "if some_condition:\n"
+        "    a.allow_delegation = True\n"
+        "else:\n"
+        "    a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 2, "both branches set it; both should be shown"
+
+
+# =============================================================================
+# Fourth review, 2026-09-08. Branch isolation was half done: state was reset,
+# but the bindings made inside a branch were not, so one branch's agent was
+# still visible — and still marked as delegating — while the next was read.
+# =============================================================================
+
+def test_a_branch_does_not_inherit_the_previous_branchs_agent(tmp_path):
+    """Each branch has to start from the state before the branch, bindings
+    included. Otherwise the first branch's agent, already marked delegating,
+    is what the second branch reads."""
+    f = tmp_path / "leak.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "if cond:\n"
+        "    a = Agent(role='x')\n"
+        "    a.allow_delegation = True\n"
+        "else:\n"
+        "    a = Agent(role='y')\n"
+        "    a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 2
+
+
+def test_a_closure_sees_the_scope_where_it_was_defined(tmp_path):
+    """A function body is analysed after the module, but the names it closes
+    over are the ones in place where it was written. Reading the scope as the
+    last branch left it hid the finding inside the closure."""
+    f = tmp_path / "closure.py"
+    f.write_text(
+        "from crewai import Agent\n"
+        "def outer(cond):\n"
+        "    if cond:\n"
+        "        a = Agent(role='x')\n"
+        "        def inner():\n"
+        "            a.allow_delegation = True\n"
+        "    else:\n"
+        "        a = Agent(role='y')\n"
+        "        a.allow_delegation = True\n"
+    )
+    findings, _ = scan_file(str(f))
+    assert len(findings) == 2, "the closure's line is a finding of its own"

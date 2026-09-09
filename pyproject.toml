@@ -8,7 +8,7 @@ dynamic = ["version"]
 authors = [
   { name="Robin Svensson", email="228113985+robin-svensson@users.noreply.github.com" },
 ]
-description = "Deterministic AST security and privilege linter for multi-agent AI systems (CrewAI, AutoGen, Swarm)"
+description = "Deterministic AST security and privilege linter for CrewAI multi-agent systems"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
