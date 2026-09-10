@@ -202,6 +202,8 @@ pytest
 
 `axiomgate-lint` is the open part of **AxiomGate**, a deterministic security and architecture auditor for multi-agent systems. The linter does one check, well and for free. The auditor maps agent topologies, delegation paths and capability boundaries, and produces evidence-backed reports for teams that need one before going to production or in front of investors.
 
+This linter finds unattenuated delegation in source. It cannot stop it at runtime — nothing that reads code can. That job belongs to [**AxiomGate Kernel**](https://github.com/robin-svensson/axiomgate-kernel), which enforces attenuation when the call is actually made, and writes a hash-chained audit record of the decision. It is readable and runnable, but it is source-available under PolyForm Noncommercial, not MIT like this one. Worth saying plainly rather than leaving you to find it: the two are by the same author and they are not licensed the same way.
+
 Built by [Robin Svensson](https://github.com/robin-svensson).
 
 ## License

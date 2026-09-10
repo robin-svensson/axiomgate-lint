@@ -4,6 +4,32 @@ Notable changes to `axiomgate-lint`. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `.github/workflows/release.yml` — tag-triggered publication to PyPI via Trusted
+  Publishing, gated on the suite, a `twine check --strict` and a tag/version
+  match. Documented in [RELEASING.md](RELEASING.md). Nothing is on PyPI yet.
+- `.github/dependabot.yml` — weekly updates for the pinned GitHub Actions.
+- A CI job that runs the suite against the built wheel from a directory where
+  `pythonpath = ["src"]` cannot make the source tree shadow it.
+
+### Changed
+- Every GitHub Action is pinned to a commit SHA rather than a moving major tag —
+  including in `action.yml`, which is the file every consumer of the composite
+  action actually runs.
+- The CI token is `permissions: contents: read`; no job here writes to the
+  repository.
+- `empty_parameter_set_mark = "fail_at_collect"` in `pyproject.toml`, so a
+  parametrised test that ends up with nothing to check fails instead of being
+  skipped and reading as green.
+
+### Removed
+- The `v0.2.2` release and tag. It pointed at the same commit as `v0.2.1`,
+  carried no diff, no changelog entry and no CI run, and the package still
+  reported `0.2.1`. Deleting it also removed the GitHub Marketplace listing
+  that had been published from it.
+
 ## [0.2.1] — 2026-09-09
 
 A second independent review before the community release. Six ways of turning

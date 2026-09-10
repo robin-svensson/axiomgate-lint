@@ -15,7 +15,8 @@ step that only the PyPI account owner can do.
    **Your projects → Publishing → Add a new pending publisher**.
    `axiomgate-lint` is not registered on PyPI yet, so it has to be added as a
    *pending* publisher — the project gets created by the first successful run.
-2. Fill in exactly:
+2. Fill in (PyPI's own labels may read slightly differently; these are the
+   values, in the order the form asks for them):
    - PyPI Project Name: `axiomgate-lint`
    - Owner: `robin-svensson`
    - Repository name: `axiomgate-lint`
@@ -25,6 +26,22 @@ step that only the PyPI account owner can do.
 
 The environment name must match `environment: pypi` in the publish job. If they
 differ, PyPI rejects the upload with an OIDC error and nothing is released.
+
+### The GitHub side is already configured
+
+The `pypi` environment exists in this repository with two protection rules set
+2026-09-11, so the workflow does not publish unattended:
+
+- **Required reviewer: `robin-svensson`.** The `publish` job waits for an
+  explicit approval in the Actions tab before it uploads anything. This is the
+  last reversible moment — after it, the version number is spent forever.
+- **Deployments only from tags matching `v*`.** A branch cannot deploy to this
+  environment at all.
+
+Neither rule is set by the workflow file; both live in the repository settings
+under Settings → Environments → pypi. If the environment is ever deleted, GitHub
+recreates it on the next run **without** these rules, and the release then
+publishes with no human gate.
 
 ## Releasing a version
 
@@ -36,6 +53,12 @@ differ, PyPI rejects the upload with an OIDC error and nothing is released.
    git tag v0.3.0
    git push origin v0.3.0
    ```
+
+**The tag must be spelled the way the version is.** The workflow compares the tag,
+minus its leading `v`, against the version of the wheel it just built, and Python
+normalises versions — `0.3.0rc1`, never `0.3.0-rc1`. So a pre-release is tagged
+`v0.3.0rc1`. A hyphen there fails the check rather than publishing the wrong
+thing, which is the right outcome, but it fails after the tag is already pushed.
 
 The workflow runs the suite on Python 3.10–3.14, builds, runs
 `twine check --strict`, checks that the tag matches the built version, and only
