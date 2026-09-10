@@ -47,6 +47,12 @@ version = {attr = "axiomgate_lint.__version__"}
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+# A parametrised test whose parameter set comes out empty is skipped by
+# default, and a skip reads as green. That cost the kernel repository 48 tests
+# without a red run 2026-09-11; nothing here parametrises over discovered files
+# today, and this makes sure that stays a deliberate choice rather than a
+# silent one.
+empty_parameter_set_mark = "fail_at_collect"
 
 [project.urls]
 Homepage = "https://github.com/robin-svensson/axiomgate-lint"

@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main ]
 
+# No job here writes to the repository: they run tests, build a distribution
+# and exercise the composite action. Without this block the token falls back to
+# whatever the repository default is, which is wider than any of them uses.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,9 +20,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v7
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
@@ -34,8 +40,8 @@ jobs:
     # release time otherwise — after the tag is already pushed.
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
-    - uses: actions/setup-python@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
         python-version: '3.12'
     - name: Build and check the distribution
@@ -50,12 +56,27 @@ jobs:
         /tmp/wheeltest/bin/axiomgate-lint --version
         /tmp/wheeltest/bin/axiomgate-lint examples/safe_crew.py
 
+    - name: Run the suite against the built wheel
+      # pythonpath = ["src"] in pyproject.toml puts the source tree on sys.path
+      # for every pytest run, so the test job imports the working tree no matter
+      # what is installed -- it cannot see a module missing from the wheel. The
+      # suite is copied somewhere without a src/ directory so that the entry on
+      # pythonpath resolves to nothing and the installed package is what gets
+      # imported. The print below is what proves which one ran.
+      run: |
+        /tmp/wheeltest/bin/pip install pytest
+        mkdir -p /tmp/wheelsuite
+        cp -r tests examples pyproject.toml /tmp/wheelsuite/
+        cd /tmp/wheelsuite
+        /tmp/wheeltest/bin/python -c "import axiomgate_lint, pathlib; print('imported from', pathlib.Path(axiomgate_lint.__file__).parent)"
+        /tmp/wheeltest/bin/python -m pytest tests -q
+
   action:
     # The composite action is what most users run. Nothing else in CI executes
     # it, so a broken action.yml shipped green.
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: The safe example finds nothing
       uses: ./
       with:
