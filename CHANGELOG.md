@@ -4,12 +4,17 @@ Notable changes to `axiomgate-lint`. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.2] — 2026-09-11
+
+The first release published to PyPI. No rule changed and no output changed —
+everything here is release machinery and hardening, which is why this is a
+patch and not a minor.
 
 ### Added
 - `.github/workflows/release.yml` — tag-triggered publication to PyPI via Trusted
   Publishing, gated on the suite, a `twine check --strict` and a tag/version
-  match. Documented in [RELEASING.md](RELEASING.md). Nothing is on PyPI yet.
+  match. Documented in [RELEASING.md](RELEASING.md). This is the release it
+  publishes.
 - `.github/dependabot.yml` — weekly updates for the pinned GitHub Actions.
 - A CI job that runs the suite against the built wheel from a directory where
   `pythonpath = ["src"]` cannot make the source tree shadow it.
