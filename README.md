@@ -61,7 +61,12 @@ Zero findings means this rule didn't match. It doesn't mean your system is safe.
 
 ## Install
 
-Not on PyPI yet. Install from the repository:
+```bash
+pip install axiomgate-lint
+```
+
+Or straight from the repository, which is the same code at whatever `main`
+currently is:
 
 ```bash
 pip install git+https://github.com/robin-svensson/axiomgate-lint.git
@@ -171,7 +176,7 @@ jobs:
 Or use the bundled action:
 
 ```yaml
-      - uses: robin-svensson/axiomgate-lint@v0.2.1
+      - uses: robin-svensson/axiomgate-lint@v0.2.2
         with:
           target-path: ./src
           fail-on: high
