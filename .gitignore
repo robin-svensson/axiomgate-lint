@@ -9,4 +9,3 @@ build/
 venv/
 *.log
 .DS_Store
-.aegis/
