@@ -36,7 +36,7 @@ elsewhere.
 ## Enforcement
 
 Report it to the maintainer at
-`228113985+robin-svensson@users.noreply.github.com`, or through GitHub's own
+`robin@axiomgate.org`, or through GitHub's own
 reporting if the maintainer is the problem. Reports are handled privately, and
 you'll get a reply within 72 hours.
 

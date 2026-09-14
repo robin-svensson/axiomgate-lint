@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "axiomgate-lint"
 dynamic = ["version"]
 authors = [
-  { name="Robin Svensson", email="228113985+robin-svensson@users.noreply.github.com" },
+  { name="Robin Svensson", email="robin@axiomgate.org" },
 ]
 description = "Deterministic AST security and privilege linter for CrewAI multi-agent systems"
 readme = "README.md"
